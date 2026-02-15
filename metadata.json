@@ -1,0 +1,7 @@
+{
+  "name": "TrailGuard",
+  "description": "Offline-first hiking safety and navigation application. Features GPS tracking, trail filtering, SOS alerts, and post-hike analytics.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
