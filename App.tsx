@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { MapComponent } from './components/Map';
+import { MapComponent, MapLayerKey } from './components/Map';
 import { TrailCard } from './components/TrailCard';
 import { Trail, Breadcrumb, Coordinate, UserSettings, HikeStats } from './types';
-import { MOCK_TRAILS, BREADCRUMB_INTERVAL_METERS, GEOFENCE_RADIUS_METERS, DEFAULT_CENTER, WALKING_SPEED_KMH, DIRECTION_ALERT_DISTANCE } from './constants';
+import { MOCK_TRAILS, BREADCRUMB_INTERVAL_METERS, GEOFENCE_RADIUS_METERS, DEFAULT_CENTER, DEFAULT_ZOOM, FOCUS_ZOOM, WALKING_SPEED_KMH, DIRECTION_ALERT_DISTANCE } from './constants';
 import { calculateDistance, calculateCalories, searchAddress, estimateDuration, fetchRealTrails, fetchRoute } from './utils/geoUtils';
 import { saveHikeToHistory, getHikeHistory, saveTrailOffline, removeOfflineTrail, isTrailOffline, getOfflineTrails } from './utils/storage';
-import { Battery, Play, Square, Download, Settings, X, Search, History, CheckCircle, MapPin, Mountain, Clock, Filter, Repeat, ChevronUp, LocateFixed } from 'lucide-react';
+import { Battery, Play, Square, Download, Settings, X, Search, History, CheckCircle, MapPin, Mountain, Clock, Filter, Repeat, ChevronUp, LocateFixed, Navigation, Map } from 'lucide-react';
 import { GoogleGenAI } from "@google/genai";
 
 // -- History Modal --
@@ -208,8 +208,11 @@ export default function App() {
   // -- New States for Dynamic Search & Map --
   const [activeTrails, setActiveTrails] = useState<Trail[]>(MOCK_TRAILS);
   const [mapViewCenter, setMapViewCenter] = useState<Coordinate | null>(null);
+  const [mapZoom, setMapZoom] = useState<number>(DEFAULT_ZOOM);
   const [isSearching, setIsSearching] = useState(false);
   const [droppedPin, setDroppedPin] = useState<Coordinate | null>(null);
+  const [mapLayer, setMapLayer] = useState<MapLayerKey>('standard');
+  const [isSwissMode, setIsSwissMode] = useState(false);
 
   // Offline state
   const [offlineMapProgress, setOfflineMapProgress] = useState<number>(0);
@@ -219,6 +222,25 @@ export default function App() {
   const [aiTip, setAiTip] = useState<string | null>(null);
   
   const watchIdRef = useRef<number | null>(null);
+
+  // --- Check for Switzerland ---
+  useEffect(() => {
+    if (currentLocation) {
+        // Rough Bounding Box for Switzerland
+        // Lat: 45.8 - 47.8, Lng: 5.9 - 10.5
+        const isSwiss = 
+            currentLocation.lat >= 45.8 && 
+            currentLocation.lat <= 47.8 && 
+            currentLocation.lng >= 5.9 && 
+            currentLocation.lng <= 10.5;
+        
+        setIsSwissMode(isSwiss);
+
+        if (isSwiss && mapLayer !== 'swisstopo') {
+            setMapLayer('swisstopo');
+        }
+    }
+  }, [currentLocation]);
 
   // --- Filtering & Offline Source ---
   const filteredTrails = useMemo(() => {
@@ -242,7 +264,7 @@ export default function App() {
       // Search Query Logic
       const matchesSearch = trail.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
                             trail.location.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                            (searchQuery.length > 0 && (trail.id.startsWith('ai-') || trail.id.startsWith('gen-')));
+                            (searchQuery.length > 0 && (trail.id.startsWith('ai-') || trail.id.startsWith('gen-') || trail.id.startsWith('osm-')));
       
       if (searchQuery.length > 0 && !matchesSearch) return false;
 
@@ -325,9 +347,11 @@ export default function App() {
             const newCoord = { lat: pos.coords.latitude, lng: pos.coords.longitude };
             setCurrentLocation(newCoord);
             setMapViewCenter(newCoord);
+            setMapZoom(FOCUS_ZOOM); // Zoom in on location found
             setDroppedPin(null); // Clear dropped pin to prioritize user location
             
             // Auto-fetch trails near this location
+            // This now checks internally for Switzerland and pulls vector data if available
             const trails = await fetchRealTrails("Current Location", newCoord);
             setActiveTrails(trails);
             setIsSearching(false);
@@ -410,6 +434,7 @@ export default function App() {
         
         if (result) {
             setMapViewCenter(result.coord);
+            setMapZoom(FOCUS_ZOOM); // Zoom in on search result
             setDroppedPin(result.coord); // Treat search result as a "pin"
             setSelectedTrail(null);
             const newTrails = await fetchRealTrails(result.displayName || searchQuery, result.coord);
@@ -424,6 +449,7 @@ export default function App() {
   const handleMapLongPress = async (coord: Coordinate) => {
     setDroppedPin(coord);
     setMapViewCenter(coord);
+    setMapZoom(FOCUS_ZOOM); // Zoom in on dropped pin
     setSelectedTrail(null);
     setIsSearching(true);
     setIsSheetCollapsed(false); // Open sheet to show new results
@@ -493,9 +519,23 @@ export default function App() {
     }, 200);
   };
 
+  const openGoogleMaps = () => {
+    if (!selectedTrail) return;
+    const { lat, lng } = selectedTrail.startCoordinate;
+    const destination = `${lat},${lng}`;
+    let url = `https://www.google.com/maps/dir/?api=1&destination=${destination}&travelmode=driving`;
+    
+    if (currentLocation) {
+        url += `&origin=${currentLocation.lat},${currentLocation.lng}`;
+    }
+    
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
   const onTrailSelect = (t: Trail) => {
       setSelectedTrail(t);
       setMapViewCenter(t.startCoordinate); // Recenter map on selected trail
+      setMapZoom(FOCUS_ZOOM); // Zoom in on trail
       setIsSheetCollapsed(false);
   };
 
@@ -541,12 +581,15 @@ export default function App() {
             selectedTrail={selectedTrail}
             breadcrumbs={breadcrumbs}
             viewCenter={mapViewCenter}
+            zoom={mapZoom}
             approachPath={approachPath}
             droppedPin={droppedPin}
             onMapLongPress={handleMapLongPress}
             onMapClick={() => {
                 setIsSheetCollapsed(true);
             }}
+            activeLayer={mapLayer}
+            onLayerChange={setMapLayer}
         />
       </div>
 
@@ -582,6 +625,11 @@ export default function App() {
               <div className="bg-yellow-100 p-2 rounded-full shadow-lg border border-yellow-300 text-yellow-800 animate-pulse" title="Battery Saver On">
                   <Battery size={20} />
               </div>
+          )}
+          {isSwissMode && (
+             <div className="bg-red-50 p-2 rounded-full shadow-lg border border-red-200 text-red-600 flex items-center justify-center" title="Swisstopo Active">
+                  <img src="https://upload.wikimedia.org/wikipedia/commons/f/f3/Flag_of_Switzerland.svg" alt="CH" className="w-5 h-5 shadow-sm rounded-sm" />
+             </div>
           )}
       </div>
 
@@ -728,6 +776,15 @@ export default function App() {
                                 <Download size={20}/>
                             )}
                          </button>
+
+                         <button 
+                            onClick={openGoogleMaps}
+                            className="p-3 rounded-xl border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 flex items-center justify-center transition-all"
+                            title="Navigate to Start (Driving)"
+                         >
+                            <Navigation size={20} />
+                         </button>
+
                         <button 
                             onClick={startHike}
                             className="flex-1 bg-primary text-white font-bold py-3 rounded-xl shadow-lg shadow-green-200 hover:bg-green-800 transition-all flex items-center justify-center gap-2"

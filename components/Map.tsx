@@ -71,6 +71,12 @@ L.Marker.prototype.options.icon = DefaultIcon;
 
 // Define available map layers
 const MAP_LAYERS = {
+  swisstopo: {
+    name: 'Swisstopo (Official)',
+    url: 'https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/{z}/{x}/{y}.jpeg',
+    attribution: '&copy; swisstopo',
+    overlay: 'https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.swisstm325-wanderwege/default/current/3857/{z}/{x}/{y}.png'
+  },
   standard: {
     name: 'Standard',
     url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
@@ -79,16 +85,16 @@ const MAP_LAYERS = {
   satellite: {
     name: 'Satellite',
     url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-    attribution: 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community'
+    attribution: 'Tiles &copy; Esri'
   },
   topo: {
     name: 'Topographic',
     url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}',
-    attribution: 'Tiles &copy; Esri &mdash; Esri, DeLorme, NAVTEQ, TomTom, Intermap, iPC, USGS, FAO, NPS, NRCAN, GeoBase, Kadaster NL, Ordnance Survey, Esri Japan, METI, Esri China (Hong Kong), and the GIS User Community'
+    attribution: 'Tiles &copy; Esri'
   }
 };
 
-type MapLayerKey = keyof typeof MAP_LAYERS;
+export type MapLayerKey = keyof typeof MAP_LAYERS;
 
 interface MapProps {
   userLocation: Coordinate | null;
@@ -96,13 +102,16 @@ interface MapProps {
   selectedTrail: Trail | null;
   breadcrumbs: Breadcrumb[];
   viewCenter?: Coordinate | null;
+  zoom?: number;
   onMapLongPress?: (coord: Coordinate) => void;
   onMapClick?: () => void;
   approachPath?: Coordinate[];
   droppedPin?: Coordinate | null;
+  activeLayer: MapLayerKey;
+  onLayerChange: (layer: MapLayerKey) => void;
 }
 
-// Component to handle map center updates
+// Component to handle map center and zoom updates
 const MapController: React.FC<{ center: Coordinate; zoom?: number }> = ({ center, zoom }) => {
   const map = useMap();
   useEffect(() => {
@@ -140,13 +149,15 @@ export const MapComponent: React.FC<MapProps> = ({
   selectedTrail, 
   breadcrumbs,
   viewCenter,
+  zoom,
   onMapLongPress,
   onMapClick,
   approachPath,
-  droppedPin
+  droppedPin,
+  activeLayer,
+  onLayerChange
 }) => {
   const [mapCenter, setMapCenter] = useState<Coordinate>(DEFAULT_CENTER);
-  const [activeLayer, setActiveLayer] = useState<MapLayerKey>('standard');
   const [isLayerMenuOpen, setIsLayerMenuOpen] = useState(false);
 
   // Prioritize viewCenter, then selectedTrail, then userLocation, then default
@@ -170,14 +181,25 @@ export const MapComponent: React.FC<MapProps> = ({
             className="w-full h-full z-0"
             zoomControl={false}
         >
+            {/* Base Layer */}
             <TileLayer
                 key={activeLayer} // Force re-render on layer change
                 attribution={MAP_LAYERS[activeLayer].attribution}
                 url={MAP_LAYERS[activeLayer].url}
                 crossOrigin="anonymous" 
             />
+
+            {/* Swisstopo Hiking Overlay (Only if Swisstopo is active) */}
+            {activeLayer === 'swisstopo' && (
+                <TileLayer
+                    url={MAP_LAYERS.swisstopo.overlay!}
+                    crossOrigin="anonymous"
+                    zIndex={10}
+                    opacity={0.8}
+                />
+            )}
             
-            <MapController center={mapCenter} />
+            <MapController center={mapCenter} zoom={zoom} />
             <MapEvents onLongPress={onMapLongPress} onMapClick={onMapClick} />
 
             {/* Dropped Pin Marker (from Long Press) */}
@@ -306,7 +328,7 @@ export const MapComponent: React.FC<MapProps> = ({
                     {(Object.keys(MAP_LAYERS) as MapLayerKey[]).map((layerKey) => (
                         <button
                             key={layerKey}
-                            onClick={() => { setActiveLayer(layerKey); setIsLayerMenuOpen(false); }}
+                            onClick={() => { onLayerChange(layerKey); setIsLayerMenuOpen(false); }}
                             className={`
                                 text-left px-3 py-2 rounded-lg text-sm font-medium transition-colors flex items-center justify-between
                                 ${activeLayer === layerKey ? 'bg-primary/10 text-primary' : 'text-gray-700 hover:bg-gray-100'}

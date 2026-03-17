@@ -11,6 +11,7 @@ export const DIRECTION_ALERT_DISTANCE = 50; // meters
 // Map settings
 export const DEFAULT_CENTER = { lat: 46.60, lng: 7.80 }; // Central Switzerland/Alps view
 export const DEFAULT_ZOOM = 8;
+export const FOCUS_ZOOM = 11; // Approx 15 mile / 25km radius view
 
 const US_TRAILS: Trail[] = [
   {
